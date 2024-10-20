@@ -2,30 +2,23 @@
 #Description-Extract BOM information from active design.
 
 import adsk.core, adsk.fusion, traceback
+import io
 
-def spacePadRight(value, length):
-    pad = ''
-    if type(value) is str:
-        paddingLength = length - len(value) + 1
-    else:
-        paddingLength = length - value + 1
-    while paddingLength > 0:
-        pad += ' '
-        paddingLength -= 1
 
-    return str(value) + pad
-
-def walkThrough(bom):
-    mStr = ''
-    for item in bom:
-        mStr += spacePadRight(item['name'], 25) + str(spacePadRight(item['instances'], 15)) + str(item['volume']) + ' ' + str(item['bodies']) + ' '
-        cog = item['cog']
-        if cog:
-            mStr += str(item['cog'].x)+ ' ' + str(item['cog'].y)+ ' ' + str(item['cog'].z)
-        else:
-            mStr += '? ? ?'
-        mStr += '\n'
-    return mStr
+def walkThrough(bom, filename):
+    # Open a file for writing
+    with io.open(filename, 'w', encoding='utf-8') as file:
+        # Write the header
+        file.write('Name,Body,Part Number,Volume,CoG X, CoG Y,Cog Z\n')
+        for item in bom:
+            mStr = item['name'] + ',' + item['body_name'] + ',' + item['part'] + ',' +  str(item['volume']) + ','
+            cog = item['cog']
+            if cog:
+                mStr += str(item['cog'].x)+ ',' + str(item['cog'].y)+ ',' + str(item['cog'].z)
+            else:
+                mStr += '?,?,?'
+            mStr += '\n'
+            file.write(mStr)
 
 def run(context):
     ui = None
@@ -48,6 +41,7 @@ def run(context):
         bom = []
         for occ in occs:
             comp = occ.component
+            
             jj = 0
             for bomI in bom:
                 if bomI['component'] == comp:
@@ -58,31 +52,42 @@ def run(context):
 
             if jj == len(bom):
                 # Gather any BOM worthy values from the component
-                volume = 0
-                cog = None
                 bodies = comp.bRepBodies
-                body_count = 0
-                for bodyK in bodies:
-                    if bodyK.isSolid:
-                        volume += bodyK.volume
-                        cog = bodyK.physicalProperties.centerOfMass
-                        body_count = body_count + 1
-                
-                # Add this component to the BOM
                 bom.append({
                     'component': comp,
+                    'part': comp.partNumber,
+                    'body_name': bodies[0].name if bodies else 'No Body',
                     'name': comp.name,
+                    'volume': comp.physicalProperties.volume,
                     'instances': 1,
-                    'volume': volume,
-                    'cog': cog,
-                    'bodies' : body_count
+
+                    'cog': comp.physicalProperties.centerOfMass
                 })
+                # comp.physicalProperties
+                # for bodyK in bodies:
+                #     if bodyK.isSolid:
+                #         bom.append({
+                #             'component': comp,
+                #             'name': comp.name,
+                #             'body_name': bodyK.name,
+                #             'volume': bodyK.volume,
+                #             'cog': bodyK.physicalProperties.centerOfMass
+                #         })
+                
 
         # Display the BOM
-        title = spacePadRight('Name', 25) + spacePadRight('Instances', 15) + 'Volume' + spacePadRight('', 25) + spacePadRight('', 15) + 'Bodies  CoG \n'
-        msg = title + '\n' + walkThrough(bom)
-        
-        ui.messageBox(msg, 'Bill Of Materials')
+        filename = "extractedBOM.csv"
+        fileDlg = ui.createFileDialog()
+        fileDlg.isMultiSelectEnabled = False
+        fileDlg.title = 'Save BOM to file'
+        fileDlg.filter = 'CSV files (*.csv)'
+        dlgResult = fileDlg.showSave()
+        if dlgResult == adsk.core.DialogResults.DialogOK:
+            filename = fileDlg.filename            
+            walkThrough(bom, filename=filename)
+            ui.messageBox(f"Bom save to: {filename}", "File saved ok")
+        else:
+            ui.messageBox('No file was selected.', "Save aborted")
 
     except:
         if ui:
